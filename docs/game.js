@@ -10202,6 +10202,97 @@ async function createWasm() {
 
 
 
+  var getCFunc = (ident) => {
+      var func = Module['_' + ident]; // closure exported function
+      assert(func, 'Cannot call unknown function ' + ident + ', make sure it is exported');
+      return func;
+    };
+  
+  var writeArrayToMemory = (array, buffer) => {
+      assert(array.length >= 0, 'writeArrayToMemory array must have a length (should be an array or typed array)')
+      HEAP8.set(array, buffer);
+    };
+  
+  
+  
+  var stackAlloc = (sz) => __emscripten_stack_alloc(sz);
+  var stringToUTF8OnStack = (str) => {
+      var size = lengthBytesUTF8(str) + 1;
+      var ret = stackAlloc(size);
+      stringToUTF8(str, ret, size);
+      return ret;
+    };
+  
+  
+  
+  
+  
+    /**
+     * @param {string|null=} returnType
+     * @param {Array=} argTypes
+     * @param {Array=} args
+     * @param {Object=} opts
+     */
+  var ccall = (ident, returnType, argTypes, args, opts) => {
+      // For fast lookup of conversion functions
+      var toC = {
+        'string': (str) => {
+          var ret = 0;
+          if (str !== null && str !== undefined && str !== 0) { // null string
+            ret = stringToUTF8OnStack(str);
+          }
+          return ret;
+        },
+        'array': (arr) => {
+          var ret = stackAlloc(arr.length);
+          writeArrayToMemory(arr, ret);
+          return ret;
+        }
+      };
+  
+      function convertReturnValue(ret) {
+        if (returnType === 'string') {
+          return UTF8ToString(ret);
+        }
+        if (returnType === 'boolean') return Boolean(ret);
+        return ret;
+      }
+  
+      var func = getCFunc(ident);
+      var cArgs = [];
+      var stack = 0;
+      assert(returnType !== 'array', 'Return type should not be "array".');
+      if (args) {
+        for (var i = 0; i < args.length; i++) {
+          var converter = toC[argTypes[i]];
+          if (converter) {
+            if (stack === 0) stack = stackSave();
+            cArgs[i] = converter(args[i]);
+          } else {
+            cArgs[i] = args[i];
+          }
+        }
+      }
+      var ret = func(...cArgs);
+      function onDone(ret) {
+        if (stack !== 0) stackRestore(stack);
+        return convertReturnValue(ret);
+      }
+  
+      ret = onDone(ret);
+      return ret;
+    };
+
+  
+    /**
+     * @param {string=} returnType
+     * @param {Array=} argTypes
+     * @param {Object=} opts
+     */
+  var cwrap = (ident, returnType, argTypes, opts) => {
+      return (...args) => ccall(ident, returnType, argTypes, args, opts);
+    };
+
   FS.createPreloadedFile = FS_createPreloadedFile;
   FS.preloadFile = FS_preloadFile;
   FS.staticInit();;
@@ -10268,6 +10359,8 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 }
 
 // Begin runtime exports
+  Module['ccall'] = ccall;
+  Module['cwrap'] = cwrap;
   var missingLibrarySymbols = [
   'writeI53ToI64Clamped',
   'writeI53ToI64Signaling',
@@ -10276,7 +10369,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   'convertI32PairToI53',
   'convertI32PairToI53Checked',
   'convertU32PairToI53',
-  'stackAlloc',
   'getTempRet0',
   'setTempRet0',
   'zeroMemory',
@@ -10304,8 +10396,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   'STACK_ALIGN',
   'POINTER_SIZE',
   'ASSERTIONS',
-  'ccall',
-  'cwrap',
   'convertJsFunctionToWasm',
   'getEmptyTableSlot',
   'updateTableMap',
@@ -10321,8 +10411,6 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
   'UTF32ToString',
   'stringToUTF32',
   'lengthBytesUTF32',
-  'stringToUTF8OnStack',
-  'writeArrayToMemory',
   'registerKeyEventCallback',
   'registerWheelEventCallback',
   'fillDeviceOrientationEventData',
@@ -10414,6 +10502,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'bigintToI53Checked',
   'stackSave',
   'stackRestore',
+  'stackAlloc',
   'ptrToString',
   'exitJS',
   'getHeapMax',
@@ -10460,6 +10549,8 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'intArrayFromString',
   'UTF16Decoder',
   'stringToNewUTF8',
+  'stringToUTF8OnStack',
+  'writeArrayToMemory',
   'JSEvents',
   'specialHTMLTargets',
   'maybeCStringToJsString',
@@ -10690,49 +10781,49 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('fetchSettings');
 }
 var ASM_CONSTS = {
-  94616: () => { if (document.fullscreenElement) return 1; },  
- 94662: () => { return Module.canvas.width; },  
- 94694: () => { return parseInt(Module.canvas.style.width); },  
- 94742: () => { document.exitFullscreen(); },  
- 94769: () => { setTimeout(function() { Module.requestFullscreen(false, false); }, 100); },  
- 94842: () => { if (document.fullscreenElement) return 1; },  
- 94888: () => { return Module.canvas.width; },  
- 94920: () => { return screen.width; },  
- 94945: () => { document.exitFullscreen(); },  
- 94972: () => { setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { canvas.style.width="unset"; }, 100); }, 100); },  
- 95105: () => { return window.innerWidth; },  
- 95131: () => { return window.innerHeight; },  
- 95158: () => { if (document.fullscreenElement) return 1; },  
- 95204: () => { return Module.canvas.width; },  
- 95236: () => { return parseInt(Module.canvas.style.width); },  
- 95284: () => { if (document.fullscreenElement) return 1; },  
- 95330: () => { return Module.canvas.width; },  
- 95362: () => { return screen.width; },  
- 95387: () => { return window.innerWidth; },  
- 95413: () => { return window.innerHeight; },  
- 95440: () => { if (document.fullscreenElement) return 1; },  
- 95486: () => { return Module.canvas.width; },  
- 95518: () => { return screen.width; },  
- 95543: () => { document.exitFullscreen(); },  
- 95570: () => { if (document.fullscreenElement) return 1; },  
- 95616: () => { return Module.canvas.width; },  
- 95648: () => { return parseInt(Module.canvas.style.width); },  
- 95696: () => { document.exitFullscreen(); },  
- 95723: ($0) => { Module.canvas.style.opacity = $0; },  
- 95761: () => { return screen.width; },  
- 95786: () => { return screen.height; },  
- 95812: () => { return window.screenX; },  
- 95839: () => { return window.screenY; },  
- 95866: () => { return window.devicePixelRatio; },  
- 95902: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
- 95955: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 96006: () => { Module.canvas.style.cursor = 'none'; },  
- 96043: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
- 96299: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 96350: () => { if (document.pointerLockElement) return 1; },  
- 96397: () => { if (document.fullscreenElement) return 1; },  
- 96443: () => { return window.innerWidth; },  
- 96469: () => { return window.innerHeight; }
+  94648: () => { if (document.fullscreenElement) return 1; },  
+ 94694: () => { return Module.canvas.width; },  
+ 94726: () => { return parseInt(Module.canvas.style.width); },  
+ 94774: () => { document.exitFullscreen(); },  
+ 94801: () => { setTimeout(function() { Module.requestFullscreen(false, false); }, 100); },  
+ 94874: () => { if (document.fullscreenElement) return 1; },  
+ 94920: () => { return Module.canvas.width; },  
+ 94952: () => { return screen.width; },  
+ 94977: () => { document.exitFullscreen(); },  
+ 95004: () => { setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { canvas.style.width="unset"; }, 100); }, 100); },  
+ 95137: () => { return window.innerWidth; },  
+ 95163: () => { return window.innerHeight; },  
+ 95190: () => { if (document.fullscreenElement) return 1; },  
+ 95236: () => { return Module.canvas.width; },  
+ 95268: () => { return parseInt(Module.canvas.style.width); },  
+ 95316: () => { if (document.fullscreenElement) return 1; },  
+ 95362: () => { return Module.canvas.width; },  
+ 95394: () => { return screen.width; },  
+ 95419: () => { return window.innerWidth; },  
+ 95445: () => { return window.innerHeight; },  
+ 95472: () => { if (document.fullscreenElement) return 1; },  
+ 95518: () => { return Module.canvas.width; },  
+ 95550: () => { return screen.width; },  
+ 95575: () => { document.exitFullscreen(); },  
+ 95602: () => { if (document.fullscreenElement) return 1; },  
+ 95648: () => { return Module.canvas.width; },  
+ 95680: () => { return parseInt(Module.canvas.style.width); },  
+ 95728: () => { document.exitFullscreen(); },  
+ 95755: ($0) => { Module.canvas.style.opacity = $0; },  
+ 95793: () => { return screen.width; },  
+ 95818: () => { return screen.height; },  
+ 95844: () => { return window.screenX; },  
+ 95871: () => { return window.screenY; },  
+ 95898: () => { return window.devicePixelRatio; },  
+ 95934: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
+ 95987: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 96038: () => { Module.canvas.style.cursor = 'none'; },  
+ 96075: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
+ 96331: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 96382: () => { if (document.pointerLockElement) return 1; },  
+ 96429: () => { if (document.fullscreenElement) return 1; },  
+ 96475: () => { return window.innerWidth; },  
+ 96501: () => { return window.innerHeight; }
 };
 function GetCanvasIdJs() { var canvasId = "#" + Module.canvas.id; var lengthBytes = lengthBytesUTF8(canvasId) + 1; var stringOnWasmHeap = _malloc(lengthBytes); stringToUTF8(canvasId, stringOnWasmHeap, lengthBytes); return stringOnWasmHeap; }
 
